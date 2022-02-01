@@ -1,0 +1,448 @@
+---
+title: "results_for_meeting"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r read in data, include= FALSE}
+
+
+setwd("C:/Users/obiew/Desktop/scott_pesticide_data")
+
+# load packages
+library(ggplot2)
+library(reshape2)
+library(gridExtra)
+library(fitdistrplus)
+library(lme4)
+library(emmeans)
+library(vegan)
+library(dplyr)
+
+rm(list = ls())
+
+# DATA PREP -------------------
+### read in data --------------------------------------------------
+
+alldf<- read.csv("input/all_pesticide2019.csv")
+ld50<- read.csv("input/ld50.csv")
+pesticidenames<-read.csv("input/pesticide_type.csv")
+gis <- read.csv("input/appleorchard_gis_data2015_3000m.csv")
+
+#then fix some things
+alldf$Sample.type <- as.factor(alldf$Sample.type)
+pesticidenames$moa<-as.factor(pesticidenames$moa)
+pesticidenames$pesticide<-as.factor(pesticidenames$pesticide)
+pesticidenames$type<-as.factor(pesticidenames$type)
+pesticidenames$class<-as.factor(pesticidenames$class)
+
+# first lets only look at bees (may change this later)
+alldf1 <- subset(alldf, Sample.type!="Apple flower" &
+                           Sample.type!="Bumble bee wax"&
+                           Sample.type!="Dandelion flower"&
+                           Sample.type!="Nectar"&
+                           Sample.type!="Honey bee pollen")
+
+
+alldf1<-droplevels(alldf1) # drop unused levels
+rownames(alldf1) = seq(length=nrow(alldf1)) # now fix row # after subsetting
+
+
+
+
+### adjusting to HQ --------------------------------------------
+# now we'll try to make everything in alldf (ppb) as a percent of ld50 of honey bees
+# which would entitle dividing alldf by corresponding values of ld50
+
+#drop identifier colummns
+justpesticides <- alldf1[7:98]
+
+
+ld50contact <- ld50[1,2:93]
+ld50oral <- ld50[2,2:93]
+
+# okay probably not the cleanest way but we can add the ld50 row to the pesticide df
+
+# then matrix is and devide by the ld 50 row
+oral<-rbind(justpesticides,ld50oral)
+
+#row numbers got wonky again
+rownames(oral) = seq(length=nrow(oral)) # now fix row # after subsetting
+
+
+temp = as.matrix(oral)
+
+oralhq<- t(t(temp)/temp[121,])
+
+oralhq = as.data.frame(oralhq)
+
+#now remove the ld 50 row
+oralhq <- oralhq[1:120,]
+
+# then we'll set all the inf and NA to 0 (where the ld50 was either 0 or NA)
+oralhq[] <- lapply(oralhq, function(x) replace(x, !is.finite(x), 0))
+
+
+#now do the same for contact
+contact<-rbind(justpesticides,ld50contact)
+
+#row numbers got wonky again
+rownames(contact) = seq(length=nrow(contact)) # now fix row # after subsetting
+
+temp = as.matrix(contact)
+
+contacthq<- t(t(temp)/temp[121,])
+
+contacthq = as.data.frame(contacthq)
+
+
+contacthq <- contacthq[1:120,]
+
+contacthq[] <- lapply(contacthq, function(x) replace(x, !is.finite(x), 0))
+
+
+
+#now add back descriptors
+oraldf<- cbind(alldf1[,1:6],oralhq)
+contactdf<- cbind(alldf1[,1:6],contacthq)
+
+#then on second thought lets drop some of those descriptor columns
+oraldf<- cbind(alldf1[,c(3,4,6)],oralhq)
+contactdf<- cbind(alldf1[,c(3,4,6)],contacthq)
+
+
+# okay now just quickly double check the ug/g to ppb is correct
+# first lets figure out the average weight of a hb in the sample
+mean((oraldf$Mass..g.[oraldf$Sample.type == "Apis mellifera worker"]))
+
+# okay .1 seems quite spot on
+
+
+
+
+
+# now lets add a column to see total additive ld50 
+#this assumes pesticides are purely additive
+oraldf$chemsum <- rowSums(oraldf[4:95])
+contactdf$chemsum <- rowSums(contactdf[4:95])
+
+
+# and now add a column to see if any pesticides were found or not
+oraldf$non_zero <- ifelse(oraldf$chemsum > 0, 1, 0)
+contactdf$non_zero<- ifelse(contactdf$chemsum > 0, 1, 0)
+
+
+#then quickly just check the frequency samples with no pesticides
+table(oraldf$non_zero)
+table(contactdf$non_zero)
+# wow okay incredibly low
+
+
+
+### remove undetected pesticides ------------------------------
+
+# I think we should remove pesticides that were never detected
+# or that have no ld50
+# as theyre not informative in our ld50 data table
+# and then just report which pesticides were removed in a table or something
+
+# we can do this by summing columns and removing zeros 
+
+i <- (colSums((oraldf[,4:95]), na.rm=T) != 0) # T if colSum is not 0, F otherwise
+cols_to_drop_oral <- c(rep(TRUE, 3), i) # then add 3 T to keep meta data columns
+
+
+oraldf1 <- oraldf[, cols_to_drop_oral] # all the non-zero columns plus meta data
+notfoundpesticides.oral <- oraldf[, !cols_to_drop_oral]  # all the zero columns
+
+
+# and the same for contact
+i <- (colSums((contactdf[,4:95]), na.rm=T) != 0) # T if colSum is not 0, F otherwise
+cols_to_drop_contact <- c(rep(TRUE, 3), i) # then add 3 T to keep meta data columns
+
+
+contactdf1 <- contactdf[, cols_to_drop_contact] # all the non-zero columns plus meta data
+notfoundpesticides.contact <- contactdf[, !cols_to_drop_contact]  # all the zero columns
+
+# the below should sum to 97 if everything went well
+# ncol(oraldf1) + ncol(notfoundpesticides.oral)
+# ncol(contactdf1) + ncol(notfoundpesticides.contact)
+
+# here is the list of pesticides that were not found or have no oral ld50
+noimpactoral <- colnames(notfoundpesticides.oral)
+noimpactcontact <- colnames(notfoundpesticides.contact)
+
+
+
+
+
+
+### melting for graphing ----------------------------------
+# now lets melt that data for graphing and playing with
+oralmelt <- reshape2::melt(oraldf1[,1:34], id.vars=c("Mass..g.", "Sample.type", "Site"))
+
+colnames(oralmelt)[4] <- "pesticide"
+colnames(oralmelt)[5] <- "oralhq"
+
+
+contactmelt <- reshape2::melt(contactdf1[1:41], id.vars=c("Mass..g.", "Sample.type", "Site"))
+
+colnames(contactmelt)[4] <- "pesticide"
+colnames(contactmelt)[5] <- "contacthq"
+
+
+#now I would love to add pesticide type as a category
+
+oralmelt <- merge(pesticidenames,oralmelt, by = "pesticide", all.y=TRUE)
+contactmelt <- merge(pesticidenames,contactmelt, by = "pesticide", all.y=TRUE)
+
+# then lets make a melt of only pesticide findings
+oralmelt.findings <- subset(oralmelt, oralmelt$oralhq >0)
+contactmelt.findings <- subset(contactmelt, contactmelt$contacthq >0)
+
+
+### adding GIS information ####
+
+# we have 2015 ag data for all 2019 orchards except 1 (chip bailey) 
+gis_sum <- gis[,55:61]
+
+gis_sum$Site <- as.factor(gis_sum$Site)
+
+oralmelt$Site <- as.factor(oralmelt$Site)
+contactmelt$Site <- as.factor(contactmelt$Site)
+oraldf1$Site <- as.factor(oraldf1$Site)
+contactdf1$Site <- as.factor(contactdf1$Site)
+
+
+oralmelt <- merge(oralmelt,gis_sum, by = "Site", all.x = TRUE)
+oraldf1 <- merge(oraldf1,gis_sum, by = "Site", all.x = TRUE)
+
+contactmelt <- merge(contactmelt,gis_sum, by = "Site", all.x = TRUE)
+contactdf1 <- merge(contactdf1,gis_sum, by = "Site", all.x = TRUE)
+
+
+
+
+# okay lets clean things up
+# and remove df I dont need
+
+rm(list = c("alldf",
+            "alldf1",
+            "contact",
+            "contacthq",
+            "oralhq",
+            "oral",
+            "ld50",
+            "ld50contact",
+            "ld50oral",
+            "notfoundpesticides.contact",
+            "notfoundpesticides.oral",
+            "i",
+            "pesticidenames",
+            "temp",
+            "cols_to_drop_oral",
+            "cols_to_drop_contact",
+            "noimpactcontact",
+            "noimpactoral",
+            "justpesticides"
+            ))
+
+
+
+
+
+# END OF DATA PREP ####
+```
+
+# summary tables
+```{r}
+table(oraldf$Sample.type)
+```
+first the number of samples we have. this is about 1 per species per site
+
+```{r}
+table(oralmelt.findings$Sample.type,oralmelt.findings$type)
+table(oralmelt.findings$Sample.type,oralmelt.findings$moa)
+
+table(contactmelt.findings$Sample.type,contactmelt.findings$type)
+table(contactmelt.findings$Sample.type,contactmelt.findings$moa)
+```
+we can see which pesticide classes are showing up in different bees in oral and contact hq
+
+
+```{r}
+table(oralmelt.findings$Sample.type)/table(oraldf$Sample.type)
+
+```
+and how many pesticides (oral) are found by sample type
+
+```{r}
+table(contactmelt.findings$Sample.type)/table(contactdf$Sample.type)
+```
+and for contact
+
+```{r}
+
+beecountvectororal <- c(19,20,16,16,20,17,12)
+
+table(oralmelt.findings$Sample.type,oralmelt.findings$moa)/beecountvectororal
+
+table(oralmelt.findings$Sample.type,oralmelt.findings$type)/beecountvectororal
+
+```
+
+
+
+
+```{r}
+oraldf1 %>%
+  group_by(Sample.type) %>% 
+  summarise(mean_hq = mean(chemsum), max_hq = max(chemsum),perc_findings= mean(non_zero))
+
+
+contactdf1 %>%
+  group_by(Sample.type) %>% 
+  summarise(mean_hq = mean(chemsum), max_hq = max(chemsum),perc_findings= mean(non_zero))
+
+
+
+```
+this is the mean values of hq (additive) and rate of findings
+
+
+
+
+# now some overview summary graphs
+
+```{r, echo=FALSE}
+ggplot(oraldf1, aes(x=Sample.type, y=chemsum))+
+  geom_boxplot(alpha=.5)+
+  scale_y_continuous(trans='log10')+
+  geom_hline(yintercept = 1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(oraldf1, aes(x=Sample.type, y=chemsum))+
+  geom_boxplot(alpha=.5)+
+  geom_hline(yintercept = 1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+```
+here we see HB come out significantly higher than other sample types when looking at additive ORAL HQ
+
+```{r, echo=FALSE}
+
+ggplot(contactdf1, aes(x=Sample.type, y=chemsum))+
+  geom_boxplot(alpha=.5)+
+  scale_y_continuous(trans='log10')+
+  geom_hline(yintercept = 1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(contactdf1, aes(x=Sample.type, y=chemsum))+
+  geom_boxplot(alpha=.5)+
+  geom_hline(yintercept = 1)+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+when looking at additive contact HQ, HB and masonbee pollen both come out significantly higher than other sample types
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+```{r, echo=FALSE}
+ggplot(oralmelt.findings, aes(x=Sample.type, y=oralhq, color=moa))+
+  geom_boxplot(alpha=.5)+
+  facet_wrap(~moa, scales="free_y")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+ggplot(contactmelt.findings, aes(x=Sample.type, y=contacthq, color=moa))+
+  geom_boxplot(alpha=.5)+
+  facet_wrap(~moa, scales="free_y")+
+  theme(axis.text.x = element_text(angle = 90, vjust = 0.5, hjust=1))
+
+```
+here is the oral / contact hq by pesticide class (non additive zeros removed)
+
+
+
+```{r, echo=FALSE}
+
+ggplot(oralmelt, aes(x=perc_ag, y= oralhq, color=type))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~type)+
+  scale_y_continuous(trans='log10')
+
+
+ggplot(oralmelt, aes(x=perc_cornsoy, y= oralhq, color=type))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~type)+
+  scale_y_continuous(trans='log10')
+
+      
+ggplot(oralmelt, aes(x=perc_apple, y= oralhq, color=type))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~type)+
+  scale_y_continuous(trans='log10')
+
+
+
+ggplot(oraldf1, aes(x=perc_ag, y= chemsum, color=Sample.type))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~Sample.type)+
+  facet_wrap(~Sample.type, scales = "free_y")+
+  scale_y_continuous(trans='log10')
+
+ggplot(oraldf1, aes(x=perc_cornsoy, y= chemsum, color=Sample.type))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~Sample.type)+
+  facet_wrap(~Sample.type, scales = "free_y")+
+  scale_y_continuous(trans='log10')
+
+
+
+ggplot(oraldf1, aes(x=perc_apple, y= chemsum, color=Sample.type))+
+  geom_point()+
+  geom_smooth()+
+  facet_wrap(~Sample.type, scales = "free_y")+
+  scale_y_continuous(trans='log10')
+
+
+
+
+ggplot(oraldf1, aes(x=perc_ag, y= chemsum))+
+  geom_point()+
+  geom_smooth()
+
+
+
+
+```
+
+
+
+
+
+
+
+
+
