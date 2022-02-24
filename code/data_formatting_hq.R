@@ -6,7 +6,7 @@
 #9/2021
 
 
-setwd("C:/Users/obiew/Desktop/scott_pesticide_data")
+#setwd("C:/Users/obiew/Desktop/scott_pesticide_data")
 
 # load packages
 library(ggplot2)
@@ -15,7 +15,7 @@ library(gridExtra)
 library(fitdistrplus)
 library(lme4)
 library(emmeans)
-library(dplyr)
+library(tidyverse)
 library(vegan)
 
 #a few packages for graph colors
