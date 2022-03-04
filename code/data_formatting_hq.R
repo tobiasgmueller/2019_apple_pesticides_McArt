@@ -6,7 +6,7 @@
 #9/2021
 
 
-setwd("C:/Users/obiew/Desktop/scott_pesticide_data")
+#setwd("C:/Users/obiew/Desktop/scott_pesticide_data")
 
 # load packages
 library(ggplot2)
