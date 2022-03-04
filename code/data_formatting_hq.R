@@ -15,7 +15,7 @@ library(gridExtra)
 library(fitdistrplus)
 library(lme4)
 library(emmeans)
-library(dplyr)
+library(tidyverse)
 library(vegan)
 
 #a few packages for graph colors
