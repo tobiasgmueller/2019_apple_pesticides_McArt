@@ -16,22 +16,25 @@ library(fitdistrplus)
 library(lme4)
 library(emmeans)
 library(tidyverse)
-library(vegan)
+library(vegan) # for ordinations
 
 #a few packages for graph colors
 library(viridis)
 library(RColorBrewer)
 library(scales)
 
-rm(list = ls())
+rm(list = ls()) # clean environment
+
+
 
 # DATA PREP -------------------
 ### read in data --------------------------------------------------
 
-alldf<- read.csv("input/all_pesticide2019.csv")
-ld50<- read.csv("input/ld50.csv")
-pesticidenames<-read.csv("input/pesticide_type.csv")
-gis <- read.csv("input/appleorchard_gis_data2015_3000m.csv")
+alldf<- read.csv("input/all_pesticide2019.csv") # field collected data
+ld50<- read.csv("input/ld50.csv") # list of ld50 values for pesticides
+pesticidenames<-read.csv("input/pesticide_type.csv") # some information on what each pesticide is 
+gis <- read.csv("input/appleorchard_gis_data2015_3000m.csv") # summary table extracted from cropscape vis arcGIS
+                                                              #summarizing crops around each orchard
 
 #then fix some things
 alldf$Sample.type <- as.factor(alldf$Sample.type)
@@ -62,22 +65,23 @@ rownames(alldf1) = seq(length=nrow(alldf1)) # now fix row # after subsetting
 #drop identifier colummns
 justpesticides <- alldf1[7:98]
 
-
+#split LD50 into contact and oral
 ld50contact <- ld50[1,2:93]
 ld50oral <- ld50[2,2:93]
 
 # okay probably not the cleanest way but we can add the ld50 row to the pesticide df
+# then matrix it and divide by the ld 50 row
 
-# then matrix is and devide by the ld 50 row
 oral<-rbind(justpesticides,ld50oral)
 
 #row numbers got wonky again
-rownames(oral) = seq(length=nrow(oral)) # now fix row # after subsetting
+rownames(oral) = seq(length=nrow(oral)) 
 
 
 temp = as.matrix(oral)
 
 oralhq<- t(t(temp)/temp[104,])
+
 
 oralhq = as.data.frame(oralhq)
 
@@ -270,16 +274,39 @@ rm(list = c("alldf",
 table(oraldf$Sample.type)
 
 # count of samples for each sites
-table(oraldf$Sample.type,oraldf$Site)
+sample_by_site<- table(oraldf$Sample.type,oraldf$Site)
+write.table(sample_by_site, file="output/tables/sample_counts_by_site.csv")
+
+
 
 table(oralmelt$Sample.type,oralmelt$class) 
 table(contactmelt$Sample.type,contactmelt$class)
 
 
 # and now avg findings per bee by species
-table(oralmelt.findings$Sample.type)/table(oraldf$Sample.type)
+finding_per_bee <- table(oralmelt.findings$Sample.type)/table(oraldf$Sample.type)
+write.table(finding_per_bee, file="output/tables/finding_count_per_bee.csv")
 
-plot(table(oralmelt.findings$Sample.type)/table(oraldf$Sample.type))
+
+# make csv of unique list of pesticides that each bee was exposed to
+bees <- unique(oralmelt$Sample.type) # list of bee types
+
+for (bee in bees) {
+  
+  ## filter the country to plot
+  test <- oralmelt.findings %>%
+    filter(Sample.type == bee)%>%
+  distinct(pesticide)%>%
+  write_csv(file = str_c("output/test/", bee, "unique_pesticides.csv", sep = ""))
+
+} 
+
+# and make a df of that aggregated
+pesticides_by_bees<- oralmelt.findings%>%
+  group_by(Sample.type)%>%
+  distinct(pesticide)
+ 
+
 
 # which pesticide MoA are showing up
 table(oralmelt.findings$Sample.type,oralmelt.findings$moa)
@@ -323,7 +350,7 @@ temp<-ld50.3percoral %>%
 
 
 # table of which bees have a combined risk of  over epa limit 
-# for oral (.3)
+
 chemsumld50.4percoral<-subset(oraldf1, chemsum >= .04)
 chemsumld50.4perccont<-subset(contactdf1, chemsum >= .04)
 
@@ -344,7 +371,14 @@ table(chemsumld50.4perccont$Site)
 # now lets try to create a table showing all pesticides and what percent of their findings are in each bee group
 
 
+ggplot(percfindingoralbybeemelt, aes(variable, value, fill = pesticide)) +
+  geom_col(position = 'fill')00-;[p -pllp]
+
+
+
 oralfinding_counts<-as.data.frame.matrix(table(oralmelt.findings$pesticide,oralmelt.findings$Sample.type))
+
+
 
 
 
